@@ -1,8 +1,18 @@
 import streamlit as st
 
-def main():
-    st.title("TP2 : Clustering K-means/Hclust")
-    st.write("Bienvenue sur l'application de test. Utilisez le menu de gauche pour accéder aux différentes pages.")
+st.set_page_config(
+    page_title="TP2 Clustering",
+    layout="wide",
+    page_icon="🧪"
+)
 
-if __name__ == '__main__':
-    main()
+# Navigation principale
+st.title("TP2 : Clustering")
+
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("K-means Clustering 🟢"):
+        st.switch_page("pages/1_Kmeans.py")
+with col2:
+    if st.button("Hierarchical Clustering 🔵"):
+        st.switch_page("pages/2_Hclust.py")
