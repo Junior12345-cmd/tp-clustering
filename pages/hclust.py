@@ -7,8 +7,9 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import plotly.express as px
 from sklearn.metrics import silhouette_score, davies_bouldin_score
+from scipy.spatial.distance import cdist
 
-st.set_page_config(page_title="TP2 : Clustering Hiérarchique", layout="wide")
+st.set_page_config(page_title="Clustering Hiérarchique", layout="wide")
 
 def load_data():
     st.sidebar.header("Chargement des données")
@@ -47,6 +48,27 @@ def plot_dendrogram(Z, labels, height=600):
     plt.xlabel("Distance")
     plt.ylabel("Points")
     st.pyplot(plt)
+
+def predict_cluster(new_point, X_scaled, labels, method='ward'):
+    """Prédit le cluster d'un nouveau point"""
+    # Calculer les centroïdes de chaque cluster
+    clusters = np.unique(labels)
+    centroids = []
+    for cluster in clusters:
+        centroids.append(np.mean(X_scaled[labels == cluster], axis=0))
+    
+    centroids = np.array(centroids)
+    
+    # Standardiser le nouveau point
+    scaler = StandardScaler()
+    scaler.fit(X_scaled)  # On utilise le scaler déjà ajusté sur les données d'entraînement
+    new_point_scaled = scaler.transform([new_point])[0]
+    
+    # Calculer la distance aux centroïdes
+    distances = cdist([new_point_scaled], centroids, 'euclidean')[0]
+    
+    # Retourner le cluster le plus proche
+    return clusters[np.argmin(distances)], distances
 
 def main():
     st.title("Clustering Hiérarchique (Hclust)")
@@ -164,6 +186,28 @@ def main():
         
         st.write(f"Meilleur K selon silhouette: {best_k_silhouette}")
         st.write(f"Meilleur K selon Davies-Bouldin: {best_k_db}")
+    
+    # Prédiction pour un nouveau point
+    st.subheader("Prédiction de cluster pour un nouveau point")
+    
+    st.write("Entrez les valeurs pour chaque feature du nouveau point à prédire:")
+    new_point = []
+    cols = st.columns(len(numeric_cols))
+    for i, col in enumerate(cols):
+        val = col.number_input(f"{numeric_cols[i]}", value=0.0)
+        new_point.append(val)
+    
+    if st.button("Prédire le cluster"):
+        if len(new_point) != len(numeric_cols):
+            st.error("Nombre de valeurs incorrect")
+        else:
+            cluster, distances = predict_cluster(new_point, X_scaled, labels, method)
+            st.success(f"Le point appartient au cluster {cluster}")
+            
+            # Afficher les distances aux centroïdes
+            st.write("Distances aux centroïdes des clusters:")
+            for i, dist in enumerate(distances):
+                st.write(f"Cluster {i+1}: {dist:.4f}")
 
 if __name__ == "__main__":
     main()
