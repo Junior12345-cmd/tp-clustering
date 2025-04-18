@@ -1,15 +1,133 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, davies_bouldin_score
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-import seaborn as sns
 import plotly.express as px
+from io import StringIO
 
 st.title("TP2 : Clustering K-means")
+
+# Fonction pour calculer la distance euclidienne
+def euclidean_distance(a, b):
+    return np.sqrt(np.sum((a - b)**2))
+
+# Implémentation manuelle de K-means
+class ManualKMeans:
+    def __init__(self, n_clusters=3, max_iter=300, random_state=None):
+        self.n_clusters = n_clusters
+        self.max_iter = max_iter
+        self.random_state = random_state
+        self.centroids = None
+        self.labels_ = None
+        self.inertia_ = None
+        
+    def fit(self, X):
+        np.random.seed(self.random_state)
+        
+        # Initialisation aléatoire des centroïdes
+        random_idx = np.random.permutation(X.shape[0])[:self.n_clusters]
+        self.centroids = X[random_idx]
+        
+        for _ in range(self.max_iter):
+            # Assigner chaque point au centroïde le plus proche
+            distances = np.zeros((X.shape[0], self.n_clusters))
+            for i in range(self.n_clusters):
+                distances[:, i] = np.array([euclidean_distance(x, self.centroids[i]) for x in X])
+            
+            new_labels = np.argmin(distances, axis=1)
+            
+            # Vérifier la convergence
+            if hasattr(self, 'labels_') and np.all(new_labels == self.labels_):
+                break
+                
+            self.labels_ = new_labels
+            
+            # Mettre à jour les centroïdes
+            new_centroids = np.zeros_like(self.centroids)
+            for i in range(self.n_clusters):
+                cluster_points = X[self.labels_ == i]
+                if len(cluster_points) > 0:
+                    new_centroids[i] = np.mean(cluster_points, axis=0)
+                else:
+                    new_centroids[i] = X[np.random.randint(0, X.shape[0])]
+            
+            self.centroids = new_centroids
+        
+        # Calculer l'inertie (somme des distances au carré)
+        self.inertia_ = 0
+        for i in range(self.n_clusters):
+            cluster_points = X[self.labels_ == i]
+            if len(cluster_points) > 0:
+                self.inertia_ += np.sum((cluster_points - self.centroids[i])**2)
+    
+    def predict(self, X):
+        distances = np.zeros((X.shape[0], self.n_clusters))
+        for i in range(self.n_clusters):
+            distances[:, i] = np.array([euclidean_distance(x, self.centroids[i]) for x in X])
+        return np.argmin(distances, axis=1)
+
+# Fonction pour calculer le score de silhouette
+def manual_silhouette_score(X, labels):
+    n = len(X)
+    silhouette_scores = np.zeros(n)
+    
+    for i in range(n):
+        # Calculer a(i): distance moyenne aux autres points du même cluster
+        cluster_i = labels[i]
+        same_cluster = X[labels == cluster_i]
+        a_i = np.mean([euclidean_distance(X[i], x) for x in same_cluster if not np.array_equal(X[i], x)])
+        
+        # Calculer b(i): distance moyenne aux points du cluster le plus proche
+        other_clusters = [c for c in np.unique(labels) if c != cluster_i]
+        b_i = np.inf
+        
+        for c in other_clusters:
+            other_cluster_points = X[labels == c]
+            mean_dist = np.mean([euclidean_distance(X[i], x) for x in other_cluster_points])
+            if mean_dist < b_i:
+                b_i = mean_dist
+        
+        # Calculer le score de silhouette pour ce point
+        if a_i == 0 and b_i == 0:
+            silhouette_scores[i] = 0
+        else:
+            silhouette_scores[i] = (b_i - a_i) / max(a_i, b_i)
+    
+    return np.mean(silhouette_scores)
+
+# Fonction pour calculer l'indice de Davies-Bouldin
+def manual_davies_bouldin_score(X, labels):
+    n_clusters = len(np.unique(labels))
+    cluster_centers = []
+    cluster_sizes = []
+    cluster_dispersions = []
+    
+    # Calculer les centroïdes et dispersions pour chaque cluster
+    for c in np.unique(labels):
+        cluster_points = X[labels == c]
+        centroid = np.mean(cluster_points, axis=0)
+        cluster_centers.append(centroid)
+        cluster_sizes.append(len(cluster_points))
+        
+        # Dispersion: distance moyenne des points au centroïde
+        dispersion = np.mean([euclidean_distance(x, centroid) for x in cluster_points])
+        cluster_dispersions.append(dispersion)
+    
+    # Calculer l'indice DB
+    db_index = 0
+    for i in range(n_clusters):
+        max_ratio = -np.inf
+        for j in range(n_clusters):
+            if i != j:
+                # Distance entre centroïdes
+                centroid_dist = euclidean_distance(cluster_centers[i], cluster_centers[j])
+                # Ratio (dispersion_i + dispersion_j) / distance_centroïdes
+                ratio = (cluster_dispersions[i] + cluster_dispersions[j]) / centroid_dist
+                if ratio > max_ratio:
+                    max_ratio = ratio
+        db_index += max_ratio
+    
+    return db_index / n_clusters
 
 # Fonction pour charger les données
 def load_data():
@@ -45,6 +163,44 @@ def load_data():
             return df
         return None
 
+# Fonction pour normaliser les données
+def manual_standard_scaler(X):
+    means = np.mean(X, axis=0)
+    stds = np.std(X, axis=0)
+    stds[stds == 0] = 1  # Éviter la division par zéro
+    return (X - means) / stds, means, stds
+
+# Fonction pour appliquer la normalisation
+def manual_transform(X, means, stds):
+    return (X - means) / stds
+
+# Fonction pour l'ACP manuelle (optionnel)
+def manual_pca(X, n_components=2):
+    # Centrer les données
+    X_centered = X - np.mean(X, axis=0)
+    
+    # Calculer la matrice de covariance
+    cov_matrix = np.cov(X_centered, rowvar=False)
+    
+    # Calculer les valeurs et vecteurs propres
+    eigenvalues, eigenvectors = np.linalg.eig(cov_matrix)
+    
+    # Trier par valeur propre décroissante
+    sorted_idx = np.argsort(eigenvalues)[::-1]
+    eigenvectors = eigenvectors[:, sorted_idx]
+    eigenvalues = eigenvalues[sorted_idx]
+    
+    # Sélectionner les n premiers composants
+    components = eigenvectors[:, :n_components]
+    
+    # Projeter les données
+    X_pca = np.dot(X_centered, components)
+    
+    # Variance expliquée
+    explained_variance = eigenvalues[:n_components] / np.sum(eigenvalues)
+    
+    return X_pca, explained_variance
+
 # Fonction principale
 def main():
     data = load_data()
@@ -63,17 +219,16 @@ def main():
         X = data[numeric_cols].values
         
         # Normalisation des données
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        X_scaled, means, stds = manual_standard_scaler(X)
         
         # Sélection du nombre de clusters
         st.subheader("Paramètres du clustering")
         k = st.number_input("Nombre de clusters (K)", min_value=2, max_value=10, value=3, key='k_value')
         
-        # Exécution du K-means
-        kmeans = KMeans(n_clusters=k, random_state=42)
+        # Exécution du K-means manuel
+        kmeans = ManualKMeans(n_clusters=k, random_state=42)
         kmeans.fit(X_scaled)
-        labels = kmeans.labels_
+        labels = kmeans.labels_  # Maintenant utilisant labels_ au lieu de labels
         
         # Ajout des labels au dataframe
         data['Cluster'] = labels
@@ -81,9 +236,9 @@ def main():
         # Affichage des centroïdes et écarts-types
         st.subheader("Résultats du clustering")
         
-        # Calcul des centroïdes et écarts-types
-        centroids = scaler.inverse_transform(kmeans.cluster_centers_)
-        centroids_df = pd.DataFrame(centroids, columns=numeric_cols)
+        # Calcul des centroïdes (dans l'espace original)
+        centroids_original = kmeans.centroids * stds + means
+        centroids_df = pd.DataFrame(centroids_original, columns=numeric_cols)
         centroids_df['Cluster'] = centroids_df.index
         
         st.write("Centroïdes des clusters:")
@@ -96,29 +251,28 @@ def main():
         
         # Métriques de qualité
         st.subheader("Métriques de qualité du clustering")
-        silhouette = silhouette_score(X_scaled, labels)
-        davies_bouldin = davies_bouldin_score(X_scaled, labels)
+        silhouette = manual_silhouette_score(X_scaled, labels)
+        davies_bouldin = manual_davies_bouldin_score(X_scaled, labels)
         
         st.write(f"Score de silhouette (Combine intra et inter): {silhouette:.3f}")
         st.write(f"Indice de Davies-Bouldin (Compare dispersion intra-cluster et distance inter-cluster): {davies_bouldin:.3f}")
         
-        # Visualisation (Bonus)
+        # Visualisation
         st.subheader("Visualisation des clusters")
         
         # Réduction de dimension si plus de 2 features
         if len(numeric_cols) > 2:
-            pca = PCA(n_components=2)
-            X_reduced = pca.fit_transform(X_scaled)
+            X_reduced, explained_var = manual_pca(X_scaled, n_components=2)
             reduced_df = pd.DataFrame(X_reduced, columns=['PC1', 'PC2'])
             reduced_df['Cluster'] = labels
-            explained_var = pca.explained_variance_ratio_.sum()
+            explained_var_sum = np.sum(explained_var)
             
             fig = px.scatter(reduced_df, x='PC1', y='PC2', color='Cluster',
-                            title=f"Clusters (PCA - Variance expliquée: {explained_var:.2f})")
+                            title=f"Clusters (PCA - Variance expliquée: {explained_var_sum:.2f})")
             st.plotly_chart(fig)
             
             # Affichage des centroïdes dans l'espace réduit
-            centroids_reduced = pca.transform(kmeans.cluster_centers_)
+            centroids_reduced, _ = manual_pca(kmeans.centroids, n_components=2)
             centroids_reduced_df = pd.DataFrame(centroids_reduced, columns=['PC1', 'PC2'])
             centroids_reduced_df['Cluster'] = centroids_reduced_df.index
             
@@ -136,7 +290,7 @@ def main():
                           name='Centroïdes')
             st.plotly_chart(fig)
         
-        # Prédiction pour un nouveau point (Bonus)
+        # Prédiction pour un nouveau point
         st.subheader("Prédiction pour un nouveau point")
         new_point = {}
         for col in numeric_cols:
@@ -144,11 +298,11 @@ def main():
         
         if st.button("Prédire le cluster"):
             new_data = np.array([list(new_point.values())])
-            new_data_scaled = scaler.transform(new_data)
+            new_data_scaled = manual_transform(new_data, means, stds)
             predicted_cluster = kmeans.predict(new_data_scaled)[0]
             st.success(f"Le point appartient au cluster {predicted_cluster}")
         
-        # Analyse pour différents K (Bonus)
+        # Analyse pour différents K
         st.subheader("Analyse pour différents K")
         max_k = st.slider("K maximum à tester", min_value=2, max_value=10, value=5, key='max_k')
         
@@ -158,10 +312,11 @@ def main():
             k_values = range(2, max_k+1)
             
             for k_val in k_values:
-                kmeans_temp = KMeans(n_clusters=k_val, random_state=42)
-                labels_temp = kmeans_temp.fit_predict(X_scaled)
-                silhouette_scores.append(silhouette_score(X_scaled, labels_temp))
-                db_scores.append(davies_bouldin_score(X_scaled, labels_temp))
+                kmeans_temp = ManualKMeans(n_clusters=k_val, random_state=42)
+                kmeans_temp.fit(X_scaled)
+                labels_temp = kmeans_temp.labels_
+                silhouette_scores.append(manual_silhouette_score(X_scaled, labels_temp))
+                db_scores.append(manual_davies_bouldin_score(X_scaled, labels_temp))
             
             # Graphique des scores
             fig, ax1 = plt.subplots(figsize=(10, 6))
