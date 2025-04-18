@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 
-st.set_page_config(page_title="Clustering Hiérarchique", layout="wide")
+st.set_page_config(page_title="TP2 : Clustering Hiérarchique", layout="wide")
 
 def load_data():
     st.sidebar.header("Chargement des données")
